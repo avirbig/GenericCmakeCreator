@@ -55,22 +55,75 @@ class CMakeProjectMaker:
         print(text)
         return text
 
+    @staticmethod
+    def _cmake_files():
+        os.mkdir("cmake")
+        sub_dir_text = (
+            """
+MACRO(list_sub_dirs result curdir)
+    set(dir_list "")
+    file(GLOB_RECURSE all_files CONFIGURE_DEPENDS LIST_DIRECTORIES TRUE  ${curdir}/*.*)
+    foreach(dir IN LISTS all_files)
+        if (IS_DIRECTORY ${dir})
+            # message("${dir}")
+            list(APPEND dir_list ${dir})
+        endif()
+    endforeach()
+    set(${result} ${dir_list})
+ENDMACRO()
+            """
+        )
+        with open("cmake/ListSubDirs.cmake", 'w') as file:
+            file.write(sub_dir_text)
+
+        source_files_text = (
+            """
+include(${CMAKE_CURRENT_SOURCE_DIR}//cmake/ListSubDirs.cmake)
+
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+)
+
+file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS 
+    ${CMAKE_CURRENT_SOURCE_DIR}/*.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
+)
+
+list_sub_dirs(SELF_INCLUDE_SOURCE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR})
+list(APPEND SELF_INCLUDE_SOURCE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR})
+
+list(FILTER SELF_INCLUDE_SOURCE_DIRECTORIES EXCLUDE REGEX "cmake")
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${SOURCES} ${HEADERS})
+            """
+        )
+        with open("cmake/SourceFiles.cmake", 'w') as file:
+            file.write(source_files_text)
+
     def _project_type(self) -> str:
         lib_type = ""
         if self.schema.project_type == "EXE":
-            main = "main.cpp"
             command = "add_executable"
             with open("main.cpp", 'w') as file:
-                file.write(f"\n\n\n\n\n\nint main(){{\n\n\n    return 0;\n}}\n\n\n")
+                text = (
+                    """
+ #include <iostream>
+
+using namespace std;
+
+int main(){
+
+    cout << "hellow world" << endl;
+    return 0;
+}
+                    """
+                )
+                file.write(text)
         else:
-            main = ""
             command = "add_library"
             lib_type = f"{self.schema.project_type}"
 
-        text = f"{command}(${{PROJECT_NAME}} {lib_type} {main} ${{SOURCES}})\n\n"
-
-        if self.schema.project_type == "EXE":
-            text += f"source_group(\"\" FILES {main})\n\n"
+        text = f"{command}(${{PROJECT_NAME}} {lib_type} ${{SOURCES}} ${{HEADERS}})\n\n"
 
         print(text)
         return text
@@ -121,22 +174,13 @@ class CMakeProjectMaker:
         return text
 
     def _source_files(self):
-        os.mkdir("cmake")
         os.mkdir("source")
-        header = f"set(SOURCES\n"
-        text = header + "\n".join(f"    source/{item}.hpp\n    source/{item}.cpp" for item in self.schema.source_files)
-        text += "\n)\n\nsource_group(\"source_files\" FILES ${SOURCES})\n\n"
-
-        with open("cmake/SourceFiles.cmake", 'w') as file:
-            file.write(text)
 
         for file_name in self.schema.source_files:
             with open(f"source/{file_name}.hpp", 'w') as file:
                 file.write("#pragma once\n")
             with open(f"source/{file_name}.cpp", 'w') as file:
                 file.write(f"#include \"{file_name}.hpp\"\n")
-
-        print(text)
 
     def _create_project_folder_and_navigate(self):
         folder_path = Path(self.schema.project_name)
@@ -148,7 +192,7 @@ class CMakeProjectMaker:
 
         # Define your source and build directories
         source_dir = self.current_folder + f"/{self.schema.project_name}"
-        build_dir = self.current_folder + f"/{self.schema.project_name}/build"
+        build_dir = self.current_folder + f"/{self.schema.project_name}/../build"
 
         # Specify the generator and any other options or variables
         generator = "Visual Studio 17 2022"
@@ -172,6 +216,7 @@ class CMakeProjectMaker:
         self._load_item(input_schema_file_path)
         self._create_project_folder_and_navigate()
         file_text += self._cmake_minimum_required()
+        self._cmake_files()
         self._source_files()
         file_text += self._project()
         file_text += self._include_sub_directories()
